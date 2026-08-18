@@ -2,9 +2,9 @@ export interface Hospital {
   id: string;
   name: string;
   address: string;
-  phone?: string;
-  website?: string;
-  emergency?: boolean;
+  phone?: string | undefined;
+  website?: string | undefined;
+  emergency?: boolean | undefined;
   lat: number;
   lon: number;
   distanceKm: number;
@@ -47,7 +47,7 @@ function buildAddress(tags: Record<string, string>): string {
 }
 
 function imageFor(tags: Record<string, string>, lat: number, lon: number) {
-  const direct = tags.image || tags["image:0"];
+  const direct = tags['image'] || tags["image:0"];
   if (direct && /^https?:\/\//.test(direct)) return direct;
   return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=17&size=400x220&markers=${lat},${lon},lightblue1`;
 }
@@ -85,15 +85,15 @@ export async function fetchNearbyHospitals(
       const elLat = el.lat ?? el.center?.lat;
       const elLon = el.lon ?? el.center?.lon;
       if (elLat == null || elLon == null) return null;
-      const name = tags.name || tags["name:pt"];
+      const name = tags['name'] || tags["name:pt"];
       if (!name) return null;
       return {
         id: `${el.type}/${el.id}`,
         name,
         address: buildAddress(tags),
-        phone: tags.phone || tags["contact:phone"],
-        website: tags.website || tags["contact:website"],
-        emergency: tags.emergency === "yes",
+        phone: tags['phone'] || tags["contact:phone"],
+        website: tags['website'] || tags["contact:website"],
+        emergency: tags['emergency'] === "yes",
         lat: elLat,
         lon: elLon,
         distanceKm: haversine(lat, lon, elLat, elLon),
