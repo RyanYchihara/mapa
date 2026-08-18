@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useState } from "react";
 import {
   MapPin,
@@ -7,11 +8,12 @@ import {
   ExternalLink,
   Phone,
   Globe,
-  Ambulance,
+  Star,
   Hospital as HospitalIcon,
 } from "lucide-react";
 
-import { fetchNearbyHospitals, type Hospital } from "../lib/hospitals";
+import { findHospitals } from "../lib/hospitals.functions";
+import type { Hospital } from "../lib/hospitals.server";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -21,13 +23,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Encontre hospitais e clínicas próximos da sua localização atual, com nome, endereço, telefone e distância.",
+          "Encontre hospitais próximos da sua localização atual, com nome, endereço, fotos, telefone e avaliações.",
       },
       { property: "og:title", content: "Hospitais Perto de Mim" },
       {
         property: "og:description",
         content:
-          "Encontre hospitais e clínicas próximos da sua localização atual, com nome, endereço, telefone e distância.",
+          "Encontre hospitais próximos da sua localização atual, com nome, endereço, fotos, telefone e avaliações.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -51,14 +53,15 @@ function geoErrorMessage(error: GeolocationPositionError): string {
 const RADIUS_OPTIONS = [2000, 5000, 10000];
 
 function Index() {
+  const search = useServerFn(findHospitals);
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [hospitals, setHospitals] = useState<Hospital[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [radius, setRadius] = useState(5000);
 
-  const search = useCallback(
-    (nextRadius = radius) => {
+  const run = useCallback(
+    (nextRadius: number) => {
       if (!navigator.geolocation) {
         setError("Seu navegador não suporta geolocalização.");
         return;
@@ -71,7 +74,9 @@ function Index() {
           const lon = position.coords.longitude;
           setCoords({ lat, lon });
           try {
-            const result = await fetchNearbyHospitals(lat, lon, nextRadius);
+            const result = await search({
+              data: { latitude: lat, longitude: lon, radius: nextRadius },
+            });
             setHospitals(result);
           } catch (e) {
             setError(e instanceof Error ? e.message : "Falha na busca.");
@@ -87,7 +92,7 @@ function Index() {
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
       );
     },
-    [radius],
+    [search],
   );
 
   return (
@@ -102,7 +107,7 @@ function Index() {
               Hospitais perto de mim
             </h1>
             <p className="text-sm text-muted-foreground">
-              Usa sua localização para listar hospitais e clínicas próximos
+              Busca com Google Maps a partir da sua localização
             </p>
           </div>
         </header>
@@ -114,7 +119,7 @@ function Index() {
                 key={r}
                 onClick={() => {
                   setRadius(r);
-                  if (coords) search(r);
+                  if (coords) run(r);
                 }}
                 className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                   radius === r
@@ -128,7 +133,7 @@ function Index() {
           </div>
 
           <button
-            onClick={() => search()}
+            onClick={() => run(radius)}
             disabled={loading}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -168,19 +173,25 @@ function Index() {
         {hospitals && hospitals.length > 0 && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {hospitals.length} resultado(s) encontrados
+              {hospitals.length} hospital(is) encontrados
             </p>
             {hospitals.map((h) => (
               <article
                 key={h.id}
                 className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
               >
-                <img
-                  src={h.imageUrl}
-                  alt={`Localização de ${h.name} no mapa`}
-                  loading="lazy"
-                  className="h-40 w-full bg-muted object-cover"
-                />
+                {h.photoUrl ? (
+                  <img
+                    src={h.photoUrl}
+                    alt={`Foto de ${h.name}`}
+                    loading="lazy"
+                    className="h-44 w-full bg-muted object-cover"
+                  />
+                ) : (
+                  <div className="flex h-28 w-full items-center justify-center bg-muted text-muted-foreground">
+                    <HospitalIcon className="h-8 w-8" />
+                  </div>
+                )}
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="text-base font-semibold text-card-foreground">{h.name}</h2>
@@ -196,17 +207,33 @@ function Index() {
                     {h.address}
                   </p>
 
-                  {h.emergency && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
-                      <Ambulance className="h-3.5 w-3.5" />
-                      Pronto-socorro
-                    </p>
-                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                    {typeof h.rating === "number" && (
+                      <span className="inline-flex items-center gap-1 text-card-foreground">
+                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                        {h.rating.toFixed(1)}
+                        {h.userRatingCount ? (
+                          <span className="text-muted-foreground">({h.userRatingCount})</span>
+                        ) : null}
+                      </span>
+                    )}
+                    {typeof h.openNow === "boolean" && (
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                          h.openNow
+                            ? "bg-emerald-500/10 text-emerald-600"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {h.openNow ? "Aberto agora" : "Fechado"}
+                      </span>
+                    )}
+                  </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     {h.phone && (
                       <a
-                        href={`tel:${h.phone}`}
+                        href={`tel:${h.phone.replace(/\s/g, "")}`}
                         className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
                       >
                         <Phone className="h-4 w-4" />
@@ -241,7 +268,7 @@ function Index() {
         )}
 
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          Dados de hospitais: OpenStreetMap (Overpass API). Localização: Geolocation API do navegador.
+          Dados: Google Maps Places API. Localização: Geolocation API do navegador.
         </p>
       </div>
     </main>
